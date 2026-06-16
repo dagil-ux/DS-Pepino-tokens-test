@@ -104,11 +104,14 @@ jobs:
       - name: Leer variables de Figma
         if: steps.changelog.outputs.has_token == 'true'
         run: |
-          curl -s \
+          HTTP_CODE=$(curl -s -o /tmp/figma_variables.json -w "%{http_code}" \
             -H "X-Figma-Token: ${{ secrets.FIGMA_TOKEN }}" \
-            "https://api.figma.com/v1/files/${{ github.event.inputs.figma_file_key }}/variables/local" \
-            > /tmp/figma_variables.json
-          echo "Variables descargadas: $(cat /tmp/figma_variables.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('meta',{}).get('variables',{})), 'variables')")"
+            "https://api.figma.com/v1/files/${{ github.event.inputs.figma_file_key }}/variables/local")
+          echo "HTTP status: $HTTP_CODE"
+          echo "Respuesta raw (primeros 500 chars):"
+          cat /tmp/figma_variables.json | head -c 500
+          echo ""
+          echo "Variables descargadas: $(cat /tmp/figma_variables.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('meta',{}).get('variables',{})), 'variables')" 2>&1)"
 
       # ─────────────────────────────────────────
       # 5. Normalizar y generar JSONs de tokens
