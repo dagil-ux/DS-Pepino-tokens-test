@@ -1,6 +1,6 @@
 {
   "_metadata": {
-    "version": "1.28",
+    "version": "1.29",
     "lastUpdated": "2026-06-16",
     "source": "figma-plugin",
     "commit": ""
@@ -243,7 +243,7 @@
         "Button": {
           "bg": {
             "$type": "color",
-            "$value": "{pp.lime.500}"
+            "$value": "{pp.DeepPurple.500}"
           },
           "txt-primary": {
             "$type": "color",
@@ -251,11 +251,11 @@
           },
           "bg-hover": {
             "$type": "color",
-            "$value": "{pp.lime.600}"
+            "$value": "{pp.DeepPurple.600}"
           },
           "bg-press": {
             "$type": "color",
-            "$value": "{pp.lime.700}"
+            "$value": "{pp.DeepPurple.700}"
           },
           "bg-disabled": {
             "$type": "color",
@@ -315,15 +315,15 @@
           },
           "bg-alt": {
             "$type": "color",
-            "$value": "{pp.lime.100}"
+            "$value": "{pp.DeepPurple.100}"
           },
           "bg-alt-hover": {
             "$type": "color",
-            "$value": "{pp.lime.200}"
+            "$value": "{pp.DeepPurple.200}"
           },
           "bg-alt-press": {
             "$type": "color",
-            "$value": "{pp.lime.300}"
+            "$value": "{pp.DeepPurple.300}"
           }
         },
         "UI": {
@@ -444,30 +444,30 @@
     },
     "Colors": {
       "pp": {
-        "lime": {
+        "DeepPurple": {
           "100": {
             "$type": "color",
-            "$value": "#e1ea80"
+            "$value": "#8080ea"
           },
           "200": {
             "$type": "color",
-            "$value": "#d9e560"
+            "$value": "#6060e5"
           },
           "300": {
             "$type": "color",
-            "$value": "#d1e040"
+            "$value": "#4040e0"
           },
           "400": {
             "$type": "color",
-            "$value": "#cada20"
+            "$value": "#2020da"
           },
           "500": {
             "$type": "color",
-            "$value": "#c2d500"
+            "$value": "#0000d5"
           },
           "600": {
             "$type": "color",
-            "$value": "#afbf00"
+            "$value": "#0000bf"
           },
           "700": {
             "$type": "color",
@@ -1047,35 +1047,35 @@
         "brand": {
           "default": {
             "$type": "color",
-            "$value": "{pp.lime.500}"
+            "$value": "{pp.DeepPurple.500}"
           },
           "light": {
             "$type": "color",
-            "$value": "{pp.lime.100}"
+            "$value": "{pp.DeepPurple.100}"
           },
           "dark": {
             "$type": "color",
-            "$value": "{pp.lime.900}"
+            "$value": "{pp.DeepPurple.900}"
           }
         },
         "accent": {
           "default": {
             "$type": "color",
-            "$value": "{pp.lime.500}"
+            "$value": "{pp.DeepPurple.500}"
           },
           "light": {
             "$type": "color",
-            "$value": "{pp.lime.100}"
+            "$value": "{pp.DeepPurple.100}"
           },
           "dark": {
             "$type": "color",
-            "$value": "{pp.lime.900}"
+            "$value": "{pp.DeepPurple.900}"
           }
         },
         "focus": {
           "default": {
             "$type": "color",
-            "$value": "{pp.lime.900}"
+            "$value": "{pp.DeepPurple.900}"
           }
         },
         "success": {
