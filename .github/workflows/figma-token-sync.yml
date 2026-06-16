@@ -83,8 +83,8 @@ jobs:
           // Write to GitHub env
           const envFile = process.env.GITHUB_OUTPUT;
           fs.appendFileSync(envFile, `version=${version}\n`);
-          fs.appendFileSync(envFile, `doc_text=${docText}\n`);
-          fs.appendFileSync(envFile, `commit_msg=${commitMsg}\n`);
+          fs.appendFileSync(envFile, `doc_text=${docText.replace(/#/g, '%23').replace(/\n/g, ' ')}\n`);
+          fs.appendFileSync(envFile, `commit_msg=${commitMsg.replace(/\n/g, ' ').replace(/'/g, '').replace(/"/g, '')}\n`);
           fs.appendFileSync(envFile, `has_token=${hasToken}\n`);
           fs.appendFileSync(envFile, `branch_name=tokens/v${version}\n`);
           EOF
