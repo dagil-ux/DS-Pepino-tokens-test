@@ -1,0 +1,296 @@
+name: Figma Token Sync → GitHub PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      figma_file_key:
+        description: 'Figma file key'
+        required: false
+        default: '9DU0UCxgtE10aTvZANpNXK'
+
+jobs:
+  sync-tokens:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # ─────────────────────────────────────────
+      # 1. Checkout repo
+      # ─────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────
+      # 2. Leer Changelog de Figma y verificar #Token
+      # ─────────────────────────────────────────
+      - name: Leer Changelog de Figma
+        id: changelog
+        run: |
+          # Leer el nodo del Changelog
+          RESPONSE=$(curl -s \
+            -H "X-Figma-Token: ${{ secrets.FIGMA_TOKEN }}" \
+            "https://api.figma.com/v1/files/${{ github.event.inputs.figma_file_key }}/nodes?ids=8947-16623")
+
+          echo "$RESPONSE" > /tmp/changelog_raw.json
+
+          # Extraer Version, Doc y Content con Node.js
+          node << 'EOF'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/changelog_raw.json', 'utf8'));
+
+          const nodes = data.nodes;
+          const frameKey = Object.keys(nodes)[0];
+          const changelog = nodes[frameKey].document;
+
+          function findByName(node, name) {
+            if (!node) return null;
+            if (node.name === name) return node;
+            for (const child of (node.children || [])) {
+              const found = findByName(child, name);
+              if (found) return found;
+            }
+            return null;
+          }
+
+          function getText(node) {
+            if (!node) return '';
+            if (node.type === 'TEXT') return node.characters || '';
+            for (const child of (node.children || [])) {
+              const t = getText(child);
+              if (t) return t;
+            }
+            return '';
+          }
+
+          const body = findByName(changelog, 'Body');
+          const firstUpdate = (body?.children || []).find(c => c.name === 'Update');
+          const head = findByName(firstUpdate, 'Head');
+          const info = findByName(head, 'Info');
+
+          const version = getText(findByName(info, 'Version')).trim();
+          const docText = getText(findByName(info, 'Doc')).trim();
+          const commitMsg = getText(findByName(head, 'Content')).trim();
+          const hasToken = docText.includes('#Token');
+
+          console.log(`VERSION=${version}`);
+          console.log(`DOC_TEXT=${docText}`);
+          console.log(`COMMIT_MSG=${commitMsg}`);
+          console.log(`HAS_TOKEN=${hasToken}`);
+          console.log(`BRANCH_NAME=tokens/v${version}`);
+
+          // Write to GitHub env
+          const envFile = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(envFile, `version=${version}\n`);
+          fs.appendFileSync(envFile, `doc_text=${docText}\n`);
+          fs.appendFileSync(envFile, `commit_msg=${commitMsg}\n`);
+          fs.appendFileSync(envFile, `has_token=${hasToken}\n`);
+          fs.appendFileSync(envFile, `branch_name=tokens/v${version}\n`);
+          EOF
+
+      # ─────────────────────────────────────────
+      # 3. Verificar condición #Token
+      # ─────────────────────────────────────────
+      - name: Verificar #Token tag
+        if: steps.changelog.outputs.has_token != 'true'
+        run: |
+          echo "⏭️ No se encontró #Token en el Changelog. Sin acción."
+          exit 0
+
+      # ─────────────────────────────────────────
+      # 4. Leer variables de Figma
+      # ─────────────────────────────────────────
+      - name: Leer variables de Figma
+        if: steps.changelog.outputs.has_token == 'true'
+        run: |
+          curl -s \
+            -H "X-Figma-Token: ${{ secrets.FIGMA_TOKEN }}" \
+            "https://api.figma.com/v1/files/${{ github.event.inputs.figma_file_key }}/variables/local" \
+            > /tmp/figma_variables.json
+          echo "Variables descargadas: $(cat /tmp/figma_variables.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('meta',{}).get('variables',{})), 'variables')")"
+
+      # ─────────────────────────────────────────
+      # 5. Normalizar y generar JSONs de tokens
+      # ─────────────────────────────────────────
+      - name: Normalizar tokens por categoría
+        if: steps.changelog.outputs.has_token == 'true'
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/figma_variables.json', 'utf8'));
+          const variables = Object.values(data.meta?.variables || {});
+          const collections = data.meta?.variableCollections || {};
+          const version = process.env.VERSION;
+
+          const colors = { _metadata: { category: 'colors', version, lastUpdated: new Date().toISOString().split('T')[0], source: 'figma' }, tokens: {} };
+          const typography = { _metadata: { category: 'typography', version, lastUpdated: new Date().toISOString().split('T')[0], source: 'figma' }, tokens: {} };
+          const spacing = { _metadata: { category: 'spacing', version, lastUpdated: new Date().toISOString().split('T')[0], source: 'figma' }, tokens: {} };
+          const metadata = { _metadata: { category: 'metadata', version, lastUpdated: new Date().toISOString().split('T')[0], source: 'figma' }, tokens: {} };
+
+          function setPath(obj, pathParts, val) {
+            let curr = obj.tokens;
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              if (!curr[pathParts[i]]) curr[pathParts[i]] = {};
+              curr = curr[pathParts[i]];
+            }
+            curr[pathParts[pathParts.length - 1]] = val;
+          }
+
+          for (const variable of variables) {
+            const collection = collections[variable.variableCollectionId];
+            const collectionName = collection?.name || 'unknown';
+            const modeId = collection?.defaultModeId;
+            const value = modeId ? variable.valuesByMode[modeId] : null;
+            const parts = variable.name.split('/');
+            const nameL = variable.name.toLowerCase();
+            const collL = collectionName.toLowerCase();
+
+            const entry = {
+              $type: variable.resolvedType === 'COLOR' ? 'color' : variable.resolvedType === 'FLOAT' ? 'number' : 'string',
+              $value: value,
+              $description: variable.description || '',
+              collection: collectionName
+            };
+
+            if (variable.resolvedType === 'COLOR' || collL.includes('color') || nameL.includes('color')) {
+              setPath(colors, parts, entry);
+            } else if (collL.includes('typograph') || collL.includes('font') || nameL.includes('font') || nameL.includes('type')) {
+              setPath(typography, parts, entry);
+            } else if (collL.includes('spacing') || collL.includes('space') || nameL.includes('spacing') || nameL.includes('gap')) {
+              setPath(spacing, parts, entry);
+            } else {
+              setPath(metadata, parts, entry);
+            }
+          }
+
+          fs.writeFileSync('tokens/colors.json', JSON.stringify(colors, null, 2));
+          fs.writeFileSync('tokens/typography.json', JSON.stringify(typography, null, 2));
+          fs.writeFileSync('tokens/spacing.json', JSON.stringify(spacing, null, 2));
+          fs.writeFileSync('tokens/metadata.json', JSON.stringify(metadata, null, 2));
+
+          console.log('✅ Tokens normalizados y escritos en tokens/');
+          EOF
+        env:
+          VERSION: ${{ steps.changelog.outputs.version }}
+
+      # ─────────────────────────────────────────
+      # 6. Diff: detectar cambios vs main
+      # ─────────────────────────────────────────
+      - name: Generar diff report
+        if: steps.changelog.outputs.has_token == 'true'
+        id: diff
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+
+          const files = ['colors.json', 'typography.json', 'spacing.json', 'metadata.json'];
+          let prBody = `## 🎨 Design Tokens — v${process.env.VERSION}\n\n`;
+          prBody += `> **Commit del diseñador:** ${process.env.COMMIT_MSG}\n\n`;
+          prBody += `**Tags:** ${process.env.DOC_TEXT}\n\n---\n\n`;
+
+          function flattenJSON(obj, prefix = '') {
+            const result = {};
+            for (const [key, value] of Object.entries(obj || {})) {
+              if (key === '_metadata') continue;
+              const fullKey = prefix ? `${prefix}.${key}` : key;
+              if (value !== null && typeof value === 'object' && !Array.isArray(value) && !('$value' in value)) {
+                Object.assign(result, flattenJSON(value, fullKey));
+              } else {
+                result[fullKey] = JSON.stringify(value);
+              }
+            }
+            return result;
+          }
+
+          let totalChanges = 0;
+
+          for (const file of files) {
+            let oldContent = {};
+            try {
+              const gitShow = execSync(`git show HEAD:tokens/${file} 2>/dev/null`, { encoding: 'utf8' });
+              oldContent = JSON.parse(gitShow);
+            } catch(e) {}
+
+            const newContent = JSON.parse(fs.readFileSync(`tokens/${file}`, 'utf8'));
+            const oldFlat = flattenJSON(oldContent);
+            const newFlat = flattenJSON(newContent);
+
+            const added = [], changed = [], removed = [];
+            for (const [key, val] of Object.entries(newFlat)) {
+              if (!(key in oldFlat)) added.push({ key, value: val });
+              else if (oldFlat[key] !== val) changed.push({ key, oldValue: oldFlat[key], newValue: val });
+            }
+            for (const key of Object.keys(oldFlat)) {
+              if (!(key in newFlat)) removed.push(key);
+            }
+
+            const total = added.length + changed.length + removed.length;
+            totalChanges += total;
+            prBody += `### \`${file}\` — ${total} cambio(s)\n`;
+            if (added.length) {
+              prBody += `\n**✅ Agregados (${added.length})**\n`;
+              added.slice(0, 15).forEach(d => prBody += `- \`${d.key}\`\n`);
+            }
+            if (changed.length) {
+              prBody += `\n**✏️ Modificados (${changed.length})**\n`;
+              changed.slice(0, 15).forEach(d => prBody += `- \`${d.key}\`: ~~${d.oldValue}~~ → ${d.newValue}\n`);
+            }
+            if (removed.length) {
+              prBody += `\n**❌ Eliminados (${removed.length})**\n`;
+              removed.slice(0, 15).forEach(k => prBody += `- \`${k}\`\n`);
+            }
+            prBody += '\n';
+          }
+
+          prBody += `---\n_Generado automáticamente · DS Pepino 2.0 · Figma → GitHub_`;
+
+          fs.writeFileSync('/tmp/pr_body.md', prBody);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `total_changes=${totalChanges}\n`);
+          console.log(`Total cambios detectados: ${totalChanges}`);
+          EOF
+        env:
+          VERSION: ${{ steps.changelog.outputs.version }}
+          COMMIT_MSG: ${{ steps.changelog.outputs.commit_msg }}
+          DOC_TEXT: ${{ steps.changelog.outputs.doc_text }}
+
+      # ─────────────────────────────────────────
+      # 7. Crear branch, commit y PR
+      # ─────────────────────────────────────────
+      - name: Configurar Git
+        if: steps.changelog.outputs.has_token == 'true'
+        run: |
+          git config user.name "DS Pepino Bot"
+          git config user.email "actions@github.com"
+
+      - name: Crear branch y commit
+        if: steps.changelog.outputs.has_token == 'true'
+        run: |
+          BRANCH="${{ steps.changelog.outputs.branch_name }}"
+          git checkout -b "$BRANCH"
+          git add tokens/
+          git diff --staged --stat
+          git commit -m "chore(tokens): v${{ steps.changelog.outputs.version }} — ${{ steps.changelog.outputs.commit_msg }}"
+          git push origin "$BRANCH"
+
+      - name: Abrir Pull Request
+        if: steps.changelog.outputs.has_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "🎨 Design Tokens v${{ steps.changelog.outputs.version }}" \
+            --body-file /tmp/pr_body.md \
+            --base main \
+            --head "${{ steps.changelog.outputs.branch_name }}" \
+            --label "design-tokens"
+
+      - name: Resumen
+        if: steps.changelog.outputs.has_token == 'true'
+        run: |
+          echo "## ✅ Token sync completado" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión:** v${{ steps.changelog.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${{ steps.changelog.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cambios:** ${{ steps.diff.outputs.total_changes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ steps.changelog.outputs.commit_msg }}" >> $GITHUB_STEP_SUMMARY
